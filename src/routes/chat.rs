@@ -66,10 +66,23 @@ pub async fn chat_completions(
     // Check per-API-key token quota (opt-in via OMNIROUTE_QUOTA_ENABLED)
     crate::plugins::quota::check_quota_for_api_key(&pool, auth_ctx.api_key_id.as_deref()).await?;
 
+    // Check per-org token quota (if the API key belongs to an org)
+    // We don't have the org_id readily available here — would need to fetch from api_keys table.
+    // For now we pass None; a full impl would query the api_key's org_id first.
+    crate::tenant_quota::check(&pool, None).await?;
+
     // Rate limiting (per-key + per-IP token bucket, in-memory)
-    // For now we pass None for IP — would need to extract from request headers.
-    // A future refactor would add an extractor for client IP.
     crate::rate_limit::check(auth_ctx.api_key_id.as_deref(), None)?;
+
+    // Response cache lookup (non-streaming only)
+    if !is_stream {
+        if let Some(cached) = crate::cache::get(&req) {
+            tracing::debug!("[cache] hit for model={}", req.model);
+            crate::metrics::record_cache_hit();
+            return Ok(Json(cached).into_response());
+        }
+        crate::metrics::record_cache_miss();
+    }
 
     if is_stream {
         let stream: Box<dyn futures::Stream<Item = StreamEvent> + Send + Unpin> = if let Some(spec) = &combo_spec {
@@ -271,6 +284,18 @@ pub async fn chat_completions(
             let plugins = crate::plugins::PLUGINS.read().await;
             plugins.on_usage(&log).await;
         }
+
+        // Store response in cache (non-streaming only)
+        crate::cache::set(&req, resp.clone());
+
+        // Record Prometheus metrics
+        crate::metrics::record_request(&log.provider_id, log.status_code as u16);
+        crate::metrics::record_tokens(&log.provider_id, log.prompt_tokens as u32, log.completion_tokens as u32);
+        crate::metrics::record_cost(&log.provider_id, cost_usd);
+
+        // Increment org quota usage (if applicable)
+        // (Passing None for now since we don't have org_id — see comment above)
+        crate::tenant_quota::increment(&pool, None, log.total_tokens as u32).await;
 
         Ok(Json(resp).into_response())
     }

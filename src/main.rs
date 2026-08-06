@@ -4,6 +4,9 @@
 
 mod a2a;
 mod auth;
+mod aws;
+mod cache;
+mod cli;
 mod compression;
 mod config;
 mod db;
@@ -13,8 +16,10 @@ mod health;
 mod i18n;
 mod live;
 mod mcp;
+mod metrics;
 mod middleware;
 mod models;
+mod openapi;
 mod plugins;
 mod pricing;
 mod providers;
@@ -22,6 +27,7 @@ mod rate_limit;
 mod routes;
 mod systemd;
 mod tenant;
+mod tenant_quota;
 mod tunnel;
 mod webhooks;
 
@@ -58,8 +64,43 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Run the MCP server over stdio (for Claude Desktop / Cursor integration).
-    /// Configure in client as: { "mcpServers": { "omniroute": { "command": "omniroute", "args": ["mcp"] } } }
     Mcp,
+
+    /// Run pending DB migrations and exit.
+    Migrate,
+
+    /// Reset a user's password.
+    ResetPassword {
+        /// Username to reset.
+        #[arg(long)]
+        username: String,
+        /// New password (min 8 chars). If omitted, you'll be prompted interactively.
+        #[arg(long)]
+        password: Option<String>,
+    },
+
+    /// Create a new user.
+    CreateUser {
+        #[arg(long)]
+        username: String,
+        #[arg(long)]
+        password: String,
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
+
+    /// List all users.
+    ListUsers,
+
+    /// List all API keys.
+    ListKeys,
+
+    /// Generate a random secret (for JWT_SECRET or API_KEY_SECRET).
+    GenSecret {
+        /// Number of random bytes (default 32).
+        #[arg(long, default_value = "32")]
+        bytes: usize,
+    },
 }
 
 #[tokio::main]
@@ -101,6 +142,32 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Mcp) => {
             tracing::info!("[mcp] starting stdio transport");
             mcp::transport::run_stdio(registry.clone(), pool).await?;
+        }
+        Some(Commands::Migrate) => {
+            cli::migrate(&pool).await?;
+        }
+        Some(Commands::ResetPassword { username, password }) => {
+            let pwd = password.unwrap_or_else(|| {
+                use std::io::{self, Write};
+                eprint!("Enter new password for {}: ", username);
+                io::stderr().flush().ok();
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).ok();
+                input.trim().to_string()
+            });
+            cli::reset_password(&pool, &username, &pwd).await?;
+        }
+        Some(Commands::CreateUser { username, password, role }) => {
+            cli::create_user(&pool, &username, &password, &role).await?;
+        }
+        Some(Commands::ListUsers) => {
+            cli::list_users(&pool).await?;
+        }
+        Some(Commands::ListKeys) => {
+            cli::list_keys(&pool).await?;
+        }
+        Some(Commands::GenSecret { bytes }) => {
+            cli::gen_secret(bytes);
         }
         None => {
             tracing::info!("OmniRoute-Rust v{} starting", env!("CARGO_PKG_VERSION"));
@@ -177,6 +244,14 @@ fn build_router(config: Config, pool: SqlitePool, registry: SharedRegistry) -> R
     let monitoring = Router::new()
         .route("/health", get(routes::health::health));
 
+    // ─── /metrics — Prometheus metrics (no auth) ───────────────────────────
+    // ─── /api/openapi.json — OpenAPI 3.0 spec (no auth) ────────────────────
+    // ─── /dashboard-demo.html — Live WS dashboard demo (no auth) ───────────
+    let misc = Router::new()
+        .route("/metrics", get(metrics::metrics_handler))
+        .route("/api/openapi.json", get(openapi::openapi_spec))
+        .route("/dashboard-demo.html", get(dashboard_demo_html));
+
     // ─── Static dashboard (optional) ───────────────────────────────────────
     let static_layer = config.dashboard_dist.clone().map(|dist| {
         Router::new()
@@ -192,6 +267,7 @@ fn build_router(config: Config, pool: SqlitePool, registry: SharedRegistry) -> R
         .nest("/api/auth", auth_routes)
         .nest("/api/dashboard", dashboard)
         .nest("/api/monitoring", monitoring)
+        .merge(misc)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(pool.clone())
@@ -310,4 +386,11 @@ async fn set_pricing_override(
     let price = crate::pricing::Price { prompt_per_mtok, completion_per_mtok };
     crate::pricing::set_override(pid, &model, price);
     Ok(Json(serde_json::json!({ "success": true, "price": price })))
+}
+
+/// GET /dashboard-demo.html — Live WebSocket dashboard demo
+async fn dashboard_demo_html() -> impl axum::response::IntoResponse {
+    use axum::http::header::CONTENT_TYPE;
+    let html = include_str!("../static/dashboard-demo.html");
+    ([(CONTENT_TYPE, "text/html; charset=utf-8")], html)
 }

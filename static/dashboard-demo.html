@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OmniRoute-Rust — Live Dashboard Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      margin: 0;
+      padding: 24px;
+    }
+    h1 { color: #fff; font-weight: 600; margin: 0 0 8px; }
+    h2 { color: #aaa; font-weight: 500; font-size: 14px; margin: 24px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header { margin-bottom: 32px; }
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 12px;
+    }
+    .status.connected { background: #1a3a1a; color: #4ade80; }
+    .status.disconnected { background: #3a1a1a; color: #f87171; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; max-width: 1200px; }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .stat-value { font-size: 32px; font-weight: 700; color: #fff; }
+    .stat-label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    .provider-list { list-style: none; padding: 0; margin: 0; }
+    .provider-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .provider-item:hover { background: #2a2a2a; }
+    .provider-name { font-family: monospace; }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+    .dot.healthy { background: #4ade80; }
+    .dot.degraded { background: #fbbf24; }
+    .dot.down { background: #f87171; }
+    .dot.unknown { background: #6b7280; }
+    #event-log {
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .event-line { color: #aaa; }
+    .event-line .ts { color: #666; margin-right: 8px; }
+    .event-line.usage { color: #60a5fa; }
+    .event-line.provider { color: #fbbf24; }
+    .event-line.error { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>OmniRoute-Rust <span id="ws-status" class="status disconnected">disconnected</span></h1>
+    <p style="color: #888; margin: 4px 0 0;">Real-time usage + provider health (WebSocket)</p>
+  </div>
+
+  <h2>Live Stats</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="stat-value" id="stat-requests">0</div>
+      <div class="stat-label">Requests (this session)</div>
+    </div>
+    <div class="card">
+      <div class="stat-value" id="stat-tokens">0</div>
+      <div class="stat-label">Tokens (this session)</div>
+    </div>
+    <div class="card">
+      <div class="stat-value" id="stat-errors">0</div>
+      <div class="stat-label">Errors</div>
+    </div>
+    <div class="card">
+      <div class="stat-value" id="stat-providers">0</div>
+      <div class="stat-label">Healthy providers</div>
+    </div>
+  </div>
+
+  <h2>Provider Health</h2>
+  <div class="card">
+    <ul class="provider-list" id="provider-list">
+      <li class="provider-item"><span class="provider-name" style="color:#666">Loading...</span></li>
+    </ul>
+  </div>
+
+  <h2>Event Log</h2>
+  <div id="event-log">
+    <div class="event-line"><span class="ts">--:--:--</span>Connecting...</div>
+  </div>
+
+  <script>
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws/dashboard';
+    const wsStatus = document.getElementById('ws-status');
+    const statRequests = document.getElementById('stat-requests');
+    const statTokens = document.getElementById('stat-tokens');
+    const statErrors = document.getElementById('stat-errors');
+    const statProviders = document.getElementById('stat-providers');
+    const providerList = document.getElementById('provider-list');
+    const eventLog = document.getElementById('event-log');
+
+    let sessionStats = { requests: 0, tokens: 0, errors: 0, healthy: 0 };
+    let providers = {};
+
+    function connect() {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        wsStatus.textContent = 'connected';
+        wsStatus.className = 'status connected';
+        logEvent('WebSocket connected', '');
+      };
+      ws.onclose = () => {
+        wsStatus.textContent = 'disconnected';
+        wsStatus.className = 'status disconnected';
+        logEvent('WebSocket disconnected — retrying in 3s', 'error');
+        setTimeout(connect, 3000);
+      };
+      ws.onerror = (e) => logEvent('WebSocket error', 'error');
+      ws.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data);
+          handleEvent(event);
+        } catch (err) {
+          console.error('parse error:', err);
+        }
+      };
+    }
+
+    function handleEvent(event) {
+      if (event.type === 'hello') {
+        logEvent('Server hello: ' + (event.data.server || '') + ' v' + (event.data.version || ''), '');
+        return;
+      }
+      if (event.type === 'ping') return;
+
+      if (event.type === 'Usage') {
+        sessionStats.requests++;
+        sessionStats.tokens += (event.data.completion_tokens || 0) + (event.data.prompt_tokens || 0);
+        if (event.data.status_code >= 400) sessionStats.errors++;
+        logEvent(
+          `usage: ${event.data.provider_id}/${event.data.model} — ${event.data.prompt_tokens}+${event.data.completion_tokens} tok, ${event.data.duration_ms}ms, ${event.data.status_code}`,
+          'usage'
+        );
+        updateStats();
+        return;
+      }
+
+      if (event.type === 'ProviderStatus') {
+        providers[event.data.provider_id] = event.data;
+        logEvent(
+          `provider ${event.data.provider_id}: ${event.data.status}${event.data.message ? ' — ' + event.data.message : ''}`,
+          'provider'
+        );
+        renderProviders();
+        return;
+      }
+    }
+
+    function updateStats() {
+      statRequests.textContent = sessionStats.requests;
+      statTokens.textContent = sessionStats.tokens.toLocaleString();
+      statErrors.textContent = sessionStats.errors;
+      statProviders.textContent = Object.values(providers).filter(p => p.status === 'ok').length;
+    }
+
+    function renderProviders() {
+      const entries = Object.entries(providers).sort((a, b) => a[0].localeCompare(b[0]));
+      if (entries.length === 0) {
+        providerList.innerHTML = '<li class="provider-item"><span class="provider-name" style="color:#666">Waiting for first health check...</span></li>';
+        return;
+      }
+      providerList.innerHTML = entries.map(([id, p]) => {
+        const cls = p.status === 'ok' ? 'healthy' : p.status === 'degraded' ? 'degraded' : p.status === 'down' ? 'down' : 'unknown';
+        return `<li class="provider-item">
+          <span><span class="dot ${cls}"></span><span class="provider-name">${id}</span></span>
+          <span style="color:#888;font-size:11px">${p.status}</span>
+        </li>`;
+      }).join('');
+      updateStats();
+    }
+
+    function logEvent(message, type) {
+      const now = new Date();
+      const ts = now.toTimeString().slice(0, 8);
+      const line = document.createElement('div');
+      line.className = 'event-line ' + type;
+      line.innerHTML = `<span class="ts">${ts}</span>${message}`;
+      eventLog.appendChild(line);
+      // Keep last 200 lines
+      while (eventLog.children.length > 200) {
+        eventLog.removeChild(eventLog.firstChild);
+      }
+      eventLog.scrollTop = eventLog.scrollHeight;
+    }
+
+    connect();
+  </script>
+</body>
+</html>
