@@ -1,0 +1,6 @@
+/target
+.env
+*.db
+*.db-*
+.env.local
+.DS_Store
