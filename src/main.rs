@@ -2,6 +2,10 @@
 //!
 //! Single binary, no runtime deps. ~15-20 MB stripped.
 
+// Bump the macro recursion limit — the OpenAPI spec in src/openapi.rs is a
+// 200+ line nested json!({...}) literal that exceeds the default limit of 128.
+#![recursion_limit = "1024"]
+
 mod a2a;
 mod auth;
 mod aws;
