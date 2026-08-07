@@ -63,7 +63,7 @@ pub enum Msg {
 
 impl Msg {
     pub fn translate(&self, lang: &Lang) -> String {
-        let table = MESSAGES.get(lang.code()).unwrap_or(&EN);
+        let table = MESSAGES.get(lang.code()).copied().unwrap_or(&EN);
         let key = match self {
             Msg::Unauthorized => "unauthorized",
             Msg::Forbidden => "forbidden",

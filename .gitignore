@@ -1,6 +1,11 @@
+<<<<<<< HEAD
 /target
 .env
 *.db
 *.db-*
 .env.local
 .DS_Store
+=======
+skills/
+node_modules/
+>>>>>>> 68d3904 (Initial commit)

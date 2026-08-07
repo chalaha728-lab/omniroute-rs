@@ -155,26 +155,29 @@ pub struct ToolCallFunction {
 
 // ─── Non-streaming response ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionResponse {
     pub id: String,
+    #[serde(default)]
     pub object: &'static str,           // "chat.completion"
     pub created: i64,
     pub model: String,
+    #[serde(default)]
     pub choices: Vec<Choice>,
+    #[serde(default)]
     pub usage: Option<Usage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Choice {
     pub index: u32,
     pub message: Message,
     pub finish_reason: Option<String>, // "stop" | "length" | "tool_calls" | null
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,

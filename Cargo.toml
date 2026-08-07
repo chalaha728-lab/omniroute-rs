@@ -26,6 +26,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-
 # HTTP client (rustls — no OpenSSL dependency)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 rustls = "0.23"
+url = "2"
 
 # Database
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "uuid", "chrono"] }
@@ -33,6 +34,9 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+
+# Filesystem paths
+dirs = "5"
 
 # Auth
 jsonwebtoken = "9"

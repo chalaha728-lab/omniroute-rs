@@ -264,6 +264,12 @@ fn build_router(config: Config, pool: SqlitePool, registry: SharedRegistry) -> R
     });
 
     // ─── Compose ────────────────────────────────────────────────────────────
+    let app_state = AppState {
+        pool: pool.clone(),
+        config: config.clone(),
+        registry: registry.clone(),
+    };
+
     let mut app = Router::new()
         .nest("/v1", v1_api)
         .nest("/v1/a2a", a2a_routes)
@@ -274,16 +280,40 @@ fn build_router(config: Config, pool: SqlitePool, registry: SharedRegistry) -> R
         .merge(misc)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
-        .with_state(pool.clone())
-        .layer(axum::Extension(pool.clone()))
-        .layer(axum::Extension(config.clone()))
-        .layer(axum::Extension(registry.clone()));
+        .with_state(app_state);
 
     if let Some(static_router) = static_layer {
         app = app.merge(static_router.with_state(()));
     }
 
     app
+}
+
+/// Unified app state — handlers extract State<SqlitePool>, State<Config>,
+/// State<SharedRegistry> via the FromRef impls below.
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: SqlitePool,
+    pub config: Config,
+    pub registry: SharedRegistry,
+}
+
+impl axum::extract::FromRef<AppState> for SqlitePool {
+    fn from_ref(state: &AppState) -> Self {
+        state.pool.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Config {
+    fn from_ref(state: &AppState) -> Self {
+        state.config.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for SharedRegistry {
+    fn from_ref(state: &AppState) -> Self {
+        state.registry.clone()
+    }
 }
 
 /// Fallback handler — serves index.html for client-side routing (e.g. /dashboard/*).

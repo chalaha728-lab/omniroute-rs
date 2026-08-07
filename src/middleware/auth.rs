@@ -1,26 +1,15 @@
 //! Auth middleware — extracts and validates either a JWT (dashboard session)
 //! or an API key (sk-or-...) from the Authorization header.
-//!
-//! Two extractors:
-//!   - `DashboardUser` — requires a valid JWT, returns the user claims
-//!   - `ApiKeyAuth` — requires a valid API key OR JWT, returns the auth context
-//!
-//! The /v1/* API accepts either (so the dashboard can call it with its JWT,
-//! AND external clients can call it with their sk-or-... key).
-//! The /api/dashboard/* routes require a JWT.
 
-use axum::{
-    extract::FromRequestParts,
-    http::{request::Parts, StatusCode},
-};
-use axum::RequestExt;
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
 use sqlx::SqlitePool;
 
 use crate::auth;
+use crate::config::Config;
 use crate::error::AppError;
 use crate::models::usage::UsageLog;
 
-/// Auth context extracted from a request.
 #[derive(Debug, Clone)]
 pub struct AuthContext {
     pub user_id: Option<String>,
@@ -35,7 +24,6 @@ pub enum AuthSource {
     ApiKey,
 }
 
-/// Extractor: requires a valid JWT (dashboard sessions only).
 #[derive(Debug, Clone)]
 pub struct DashboardUser(pub auth::JwtClaims);
 
@@ -43,25 +31,19 @@ pub struct DashboardUser(pub auth::JwtClaims);
 impl<S> FromRequestParts<S> for DashboardUser
 where
     S: Send + Sync,
-    SqlitePool: Clone + Send + Sync + 'static,
+    SqlitePool: axum::extract::FromRef<S>,
+    Config: axum::extract::FromRef<S>,
 {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let pool = parts.extensions
-            .get::<SqlitePool>()
-            .cloned()
-            .ok_or_else(|| AppError::Internal("DB pool not in extensions".into()))?;
-        let config = parts.extensions
-            .get::<crate::config::Config>()
-            .cloned()
-            .ok_or_else(|| AppError::Internal("Config not in extensions".into()))?;
+        let pool = <SqlitePool as axum::extract::FromRef<S>>::from_ref(state);
+        let config = <Config as axum::extract::FromRef<S>>::from_ref(state);
 
         let token = extract_bearer(parts)
             .ok_or_else(|| AppError::Unauthorized("missing Authorization header".into()))?;
 
         let claims = auth::verify_jwt(&token, &config.jwt_secret)?;
-        // Verify the user still exists in the DB
         let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
             .bind(&claims.sub)
             .fetch_optional(&pool)
@@ -73,7 +55,6 @@ where
     }
 }
 
-/// Extractor: accepts either a JWT or an API key (for /v1/* API).
 #[derive(Debug, Clone)]
 pub struct ApiKeyAuth(pub AuthContext);
 
@@ -81,23 +62,18 @@ pub struct ApiKeyAuth(pub AuthContext);
 impl<S> FromRequestParts<S> for ApiKeyAuth
 where
     S: Send + Sync,
+    SqlitePool: axum::extract::FromRef<S>,
+    Config: axum::extract::FromRef<S>,
 {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let pool = parts.extensions
-            .get::<SqlitePool>()
-            .cloned()
-            .ok_or_else(|| AppError::Internal("DB pool not in extensions".into()))?;
-        let config = parts.extensions
-            .get::<crate::config::Config>()
-            .cloned()
-            .ok_or_else(|| AppError::Internal("Config not in extensions".into()))?;
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let pool = <SqlitePool as axum::extract::FromRef<S>>::from_ref(state);
+        let config = <Config as axum::extract::FromRef<S>>::from_ref(state);
 
         let token = extract_bearer(parts)
             .ok_or_else(|| AppError::Unauthorized("missing Authorization header".into()))?;
 
-        // Try JWT first
         if let Ok(claims) = auth::verify_jwt(&token, &config.jwt_secret) {
             return Ok(ApiKeyAuth(AuthContext {
                 user_id: Some(claims.sub.clone()),
@@ -107,10 +83,9 @@ where
             }));
         }
 
-        // Fall back to API key lookup
         let key_hash = auth::hash_api_key(&token);
         let row: Option<(String, String, i64)> = sqlx::query_as(
-            "SELECT id, user_id, enabled FROM api_keys WHERE key_hash = ? AND expires_at IS NULL OR expires_at > datetime('now')"
+            "SELECT id, user_id, enabled FROM api_keys WHERE key_hash = ? AND (expires_at IS NULL OR expires_at > datetime(\'now\'))"
         )
         .bind(&key_hash)
         .fetch_optional(&pool)
@@ -119,8 +94,7 @@ where
 
         match row {
             Some((id, user_id, enabled)) if enabled == 1 => {
-                // Update last_used_at
-                let _ = sqlx::query("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?")
+                let _ = sqlx::query("UPDATE api_keys SET last_used_at = datetime(\'now\') WHERE id = ?")
                     .bind(&id)
                     .execute(&pool)
                     .await;
@@ -147,7 +121,6 @@ fn extract_bearer(parts: &Parts) -> Option<String> {
     Some(auth_header.trim().to_string())
 }
 
-/// Record a usage log entry. Best-effort — errors are logged but not surfaced.
 pub async fn record_usage(pool: &SqlitePool, log: &UsageLog) {
     let _ = sqlx::query(
         r#"INSERT INTO usage_logs

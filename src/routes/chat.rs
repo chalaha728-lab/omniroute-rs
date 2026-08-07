@@ -165,7 +165,7 @@ pub async fn chat_completions(
                     ));
                 }
             };
-            Ok(Event::default().data(chunk.to_string()))
+            Ok(Event::default().data(serde_json::to_string(&chunk).unwrap_or_else(|_| "{}".into())))
         });
 
         // After the stream completes, append [DONE] + record usage

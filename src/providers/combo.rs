@@ -302,10 +302,11 @@ pub async fn execute_stream(
     let (tx, rx) = mpsc::channel::<StreamEvent>(64);
     let mut handles = Vec::new();
     for target in &spec.targets {
+        let target_owned = target.clone();
         let mut sub_req = req.clone();
-        sub_req.model = target.clone();
+        sub_req.model = target_owned.clone();
         let provider = registry.pick(&sub_req)
-            .ok_or_else(|| AppError::BadRequest(format!("unknown provider: {}", target)))?;
+            .ok_or_else(|| AppError::BadRequest(format!("unknown provider: {}", target_owned)))?;
         let req_clone = sub_req.clone();
         let tx_clone = tx.clone();
         handles.push(tokio::spawn(async move {
@@ -319,7 +320,7 @@ pub async fn execute_stream(
                     }
                 }
                 Err(e) => {
-                    let _ = tx_clone.send(StreamEvent::Error(format!("{}: {}", target, e))).await;
+                    let _ = tx_clone.send(StreamEvent::Error(format!("{}: {}", target_owned, e))).await;
                 }
             }
         }));

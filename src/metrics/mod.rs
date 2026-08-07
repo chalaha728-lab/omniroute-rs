@@ -38,14 +38,14 @@ fn key(provider: &str, status: &str) -> String {
 pub fn record_request(provider: &str, status_code: u16) {
     let status = if (200..300).contains(&status_code) { "success" } else { "error" };
     let k = key(provider, status);
-    if let Ok(m) = METRICS.lock() {
+    if let Ok(mut m) = METRICS.lock() {
         m.requests_total.entry(k).or_insert_with(|| AtomicU64::new(0))
             .fetch_add(1, Ordering::Relaxed);
     }
 }
 
 pub fn record_tokens(provider: &str, prompt: u32, completion: u32) {
-    if let Ok(m) = METRICS.lock() {
+    if let Ok(mut m) = METRICS.lock() {
         m.tokens_prompt.entry(provider.into()).or_insert_with(|| AtomicU64::new(0))
             .fetch_add(prompt as u64, Ordering::Relaxed);
         m.tokens_completion.entry(provider.into()).or_insert_with(|| AtomicU64::new(0))
@@ -56,20 +56,20 @@ pub fn record_tokens(provider: &str, prompt: u32, completion: u32) {
 pub fn record_cost(provider: &str, cost_usd: f64) {
     // Store as microcents (1e-8 USD) since atomic ints can't hold floats.
     let microcents = (cost_usd * 10_000_000.0) as u64;
-    if let Ok(m) = METRICS.lock() {
+    if let Ok(mut m) = METRICS.lock() {
         m.cost_usd_microcents.entry(provider.into()).or_insert_with(|| AtomicU64::new(0))
             .fetch_add(microcents, Ordering::Relaxed);
     }
 }
 
 pub fn record_cache_hit() {
-    if let Ok(m) = METRICS.lock() {
+    if let Ok(mut m) = METRICS.lock() {
         m.cache_hits.fetch_add(1, Ordering::Relaxed);
     }
 }
 
 pub fn record_cache_miss() {
-    if let Ok(m) = METRICS.lock() {
+    if let Ok(mut m) = METRICS.lock() {
         m.cache_misses.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -80,7 +80,7 @@ pub fn render() -> String {
 
     out.push_str("# HELP omniroute_requests_total Total requests by provider and status\n");
     out.push_str("# TYPE omniroute_requests_total counter\n");
-    if let Ok(m) = METRICS.lock() {
+    if let Ok(mut m) = METRICS.lock() {
         for (k, v) in &m.requests_total {
             let parts: Vec<&str> = k.splitn(2, '|').collect();
             if parts.len() == 2 {

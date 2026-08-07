@@ -92,9 +92,10 @@ pub fn get(req: &ChatCompletionRequest) -> Option<ChatCompletionResponse> {
     let key = compute_key(req);
     let mut cache = CACHE.lock().unwrap();
     let now = Instant::now();
+    let ttl = cache.ttl;
 
     if let Some(entry) = cache.entries.get_mut(&key) {
-        if now.duration_since(entry.inserted_at) < cache.ttl {
+        if now.duration_since(entry.inserted_at) < ttl {
             return Some(entry.response.clone());
         }
         // Expired — remove

@@ -55,7 +55,7 @@ use tokio::sync::RwLock;
 use crate::config::Config;
 use crate::error::{AppError, AppResult};
 use crate::models::chat::{ChatCompletionRequest, ChatCompletionResponse, StreamEvent};
-use crate::models::provider::ProviderId;
+pub use crate::models::provider::ProviderId;
 
 /// A single upstream LLM provider.
 #[async_trait]
