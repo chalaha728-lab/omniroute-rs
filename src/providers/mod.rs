@@ -32,6 +32,8 @@ pub mod openai;
 pub mod openrouter;
 pub mod ovhcloud;
 pub mod perplexity;
+pub mod pollinations;
+pub mod puter;
 pub mod predibase;
 pub mod premai;
 pub mod replicate;
@@ -141,6 +143,8 @@ impl Registry {
             Arc::new(spawning::new(config.provider_keys.spawning.clone())),
             Arc::new(scaleway::new(config.provider_keys.scaleway.clone())),
             Arc::new(ovhcloud::new(config.provider_keys.ovhcloud.clone())),
+            Arc::new(pollinations::new()),
+            Arc::new(puter::new()),
         ];
 
         for p in candidates {
@@ -186,6 +190,75 @@ impl Registry {
             return self.get(pid);
         }
         None
+    }
+
+    /// Reload provider API keys from the DB. Called after the dashboard
+    /// updates a provider's key via PUT /api/dashboard/providers/:id.
+    /// Rebuilds the entire registry with env + DB keys merged.
+    pub async fn reload_from_db(&mut self, pool: &sqlx::SqlitePool, config: &Config) {
+        let mut new_keys = config.provider_keys.clone();
+
+        // Read all provider rows from the DB
+        if let Ok(rows) = sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT id, api_key_enc FROM providers WHERE enabled = 1 AND api_key_enc IS NOT NULL"
+        )
+        .fetch_all(pool)
+        .await
+        {
+            for (id, enc) in rows {
+                if let Some(enc) = enc {
+                    if let Some(plaintext) = crate::auth::decrypt_api_key(&enc, &config.api_key_secret) {
+                        // Override the env-var key with the DB key
+                        match id.as_str() {
+                            "openai" => new_keys.openai = Some(plaintext),
+                            "anthropic" => new_keys.anthropic = Some(plaintext),
+                            "gemini" => new_keys.gemini = Some(plaintext),
+                            "deepseek" => new_keys.deepseek = Some(plaintext),
+                            "openrouter" => new_keys.openrouter = Some(plaintext),
+                            "groq" => new_keys.groq = Some(plaintext),
+                            "mistral" => new_keys.mistral = Some(plaintext),
+                            "xai" => new_keys.xai = Some(plaintext),
+                            "together" => new_keys.together = Some(plaintext),
+                            "fireworks" => new_keys.fireworks = Some(plaintext),
+                            "cohere" => new_keys.cohere = Some(plaintext),
+                            "replicate" => new_keys.replicate = Some(plaintext),
+                            "huggingface" => new_keys.huggingface = Some(plaintext),
+                            "ai21" => new_keys.ai21 = Some(plaintext),
+                            "perplexity" => new_keys.perplexity = Some(plaintext),
+                            "azure" => new_keys.azure = Some(plaintext),
+                            "cerebras" => new_keys.cerebras = Some(plaintext),
+                            "novita" => new_keys.novita = Some(plaintext),
+                            "sambanova" => new_keys.sambanova = Some(plaintext),
+                            "siliconflow" => new_keys.siliconflow = Some(plaintext),
+                            "lepton" => new_keys.lepton = Some(plaintext),
+                            "deepinfra" => new_keys.deepinfra = Some(plaintext),
+                            "nebius" => new_keys.nebius = Some(plaintext),
+                            "hyperbolic" => new_keys.hyperbolic = Some(plaintext),
+                            "bedrock" => new_keys.bedrock = Some(plaintext),
+                            "vertex" => new_keys.vertex = Some(plaintext),
+                            "voyage" => new_keys.voyage = Some(plaintext),
+                            "jina" => new_keys.jina = Some(plaintext),
+                            "watsonx" => new_keys.watsonx = Some(plaintext),
+                            "anyscale" => new_keys.anyscale = Some(plaintext),
+                            "friendli" => new_keys.friendli = Some(plaintext),
+                            "baseten" => new_keys.baseten = Some(plaintext),
+                            "octoai" => new_keys.octoai = Some(plaintext),
+                            "predibase" => new_keys.predibase = Some(plaintext),
+                            "runpod" => new_keys.runpod = Some(plaintext),
+                            "premai" => new_keys.premai = Some(plaintext),
+                            "spawning" => new_keys.spawning = Some(plaintext),
+                            "scaleway" => new_keys.scaleway = Some(plaintext),
+                            "ovhcloud" => new_keys.ovhcloud = Some(plaintext),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        // Rebuild the registry with the merged keys
+        let new_config = Config { provider_keys: new_keys, ..config.clone() };
+        *self = Registry::build(&new_config);
     }
 }
 

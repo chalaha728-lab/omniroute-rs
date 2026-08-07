@@ -179,6 +179,8 @@ impl Config {
                     "spawning".into(),
                     "scaleway".into(),
                     "ovhcloud".into(),
+                    "pollinations".into(),
+                    "puter".into(),
                 ]
             });
 

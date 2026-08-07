@@ -44,6 +44,8 @@ pub enum ProviderId {
     Spawning,
     Scaleway,
     OVHcloud,
+    Pollinations,
+    Puter,
 }
 
 impl ProviderId {
@@ -89,6 +91,8 @@ impl ProviderId {
             ProviderId::Spawning => "spawning",
             ProviderId::Scaleway => "scaleway",
             ProviderId::OVHcloud => "ovhcloud",
+            ProviderId::Pollinations => "pollinations",
+            ProviderId::Puter => "puter",
         }
     }
 
@@ -134,6 +138,8 @@ impl ProviderId {
             ProviderId::Spawning => "Spawning AI",
             ProviderId::Scaleway => "Scaleway",
             ProviderId::OVHcloud => "OVHcloud",
+            ProviderId::Pollinations => "Pollinations (FREE)",
+            ProviderId::Puter => "Puter (FREE)",
         }
     }
 
@@ -179,6 +185,8 @@ impl ProviderId {
             "spawning" => Some(ProviderId::Spawning),
             "scaleway" => Some(ProviderId::Scaleway),
             "ovhcloud" | "ovh" => Some(ProviderId::OVHcloud),
+            "pollinations" => Some(ProviderId::Pollinations),
+            "puter" => Some(ProviderId::Puter),
             _ => None,
         }
     }
@@ -225,6 +233,8 @@ impl ProviderId {
             ProviderId::Spawning,
             ProviderId::Scaleway,
             ProviderId::OVHcloud,
+            ProviderId::Pollinations,
+            ProviderId::Puter,
         ]
     }
 
@@ -269,6 +279,8 @@ impl ProviderId {
                 | ProviderId::Spawning
                 | ProviderId::Scaleway
                 | ProviderId::OVHcloud
+                | ProviderId::Pollinations
+                | ProviderId::Puter
         )
     }
 }

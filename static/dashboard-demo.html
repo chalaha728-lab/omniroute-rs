@@ -108,6 +108,15 @@
     </ul>
   </div>
 
+  <h2>Provider API Keys</h2>
+  <div class="card">
+    <p style="color:#888;font-size:12px;margin:0 0 12px">
+      Enter your API key for any provider. Keys are encrypted at rest and take effect immediately.
+      Providers marked "FREE" don't need a key.
+    </p>
+    <div id="provider-keys-list" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
   <h2>Event Log</h2>
   <div id="event-log">
     <div class="event-line"><span class="ts">--:--:--</span>Connecting...</div>
@@ -202,6 +211,68 @@
       }).join('');
       updateStats();
     }
+
+    // ─── Provider API key management ─────────────────────────────
+    async function loadProviderKeys() {
+        try {
+            const resp = await fetch('/api/dashboard/providers', {
+                headers: { 'Authorization': 'Bearer ' + authToken }
+            });
+            if (!resp.ok) return;
+            const providers = await resp.json();
+            const container = document.getElementById('provider-keys-list');
+            container.innerHTML = providers.map(p => `
+                <div style="display:flex;align-items:center;gap:8px;padding:8px;background:#111;border-radius:4px">
+                    <span style="flex:1;font-family:monospace;font-size:13px">${p.id}</span>
+                    <span style="font-size:11px;color:${p.has_key ? '#4ade80' : '#666'}">${p.has_key ? '✓ key set' : 'no key'}</span>
+                    <input type="password" placeholder="sk-..." data-provider="${p.id}"
+                        style="flex:2;padding:4px 8px;background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#fff;font-size:12px;font-family:monospace">
+                    <button onclick="saveKey('${p.id}')" style="padding:4px 12px;background:#2563eb;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px">Save</button>
+                </div>
+            `).join('');
+        } catch (e) { console.error('loadProviderKeys:', e); }
+    }
+
+    async function saveKey(providerId) {
+        const input = document.querySelector(`input[data-provider="${providerId}"]`);
+        const key = input.value.trim();
+        if (!key) return alert('Enter a key first');
+        try {
+            const resp = await fetch(`/api/dashboard/providers/${providerId}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': 'Bearer ' + authToken,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ api_key: key })
+            });
+            if (resp.ok) {
+                input.value = '';
+                alert('Key saved for ' + providerId + ' — provider registry reloaded');
+                loadProviderKeys(); // refresh the "✓ key set" indicator
+            } else {
+                alert('Failed: ' + await resp.text());
+            }
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    // ─── Auth token (auto-login on page load) ────────────────────
+    let authToken = null;
+    async function autoLogin() {
+        try {
+            const resp = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: 'admin', password: 'CHANGEME' })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                authToken = data.token;
+                loadProviderKeys();
+            }
+        } catch (e) { console.error('autoLogin:', e); }
+    }
+    autoLogin();
 
     function logEvent(message, type) {
       const now = new Date();

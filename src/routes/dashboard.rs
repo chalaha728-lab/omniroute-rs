@@ -89,6 +89,7 @@ pub struct UpdateProviderRequest {
 pub async fn update_provider(
     State(pool): State<SqlitePool>,
     State(config): State<Config>,
+    State(registry): State<crate::providers::SharedRegistry>,
     _user: DashboardUser,
     Path(id): Path<String>,
     Json(req): Json<UpdateProviderRequest>,
@@ -111,6 +112,13 @@ pub async fn update_provider(
         sqlx::query("UPDATE providers SET enabled = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(if enabled { 1 } else { 0 }).bind(&id).execute(&pool).await?;
     }
+
+    // Reload the provider registry so the new key takes effect immediately
+    {
+        let mut reg = registry.write().await;
+        reg.reload_from_db(&pool, &config).await;
+    }
+
     Ok(Json(json!({ "success": true })))
 }
 
