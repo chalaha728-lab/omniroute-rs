@@ -25,10 +25,35 @@ pub async fn init(config: &Config) -> AppResult<SqlitePool> {
         .connect_with(opts)
         .await?;
 
-    // Run embedded migrations
-    sqlx::migrate!("./migrations").run(&pool).await.map_err(|e| {
-        crate::error::AppError::Internal(format!("migration failed: {}", e))
-    })?;
+    // Run embedded migrations. If a previous run left a partially-applied
+    // migration, delete the DB and retry.
+    if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
+        tracing::warn!("[db] migration failed ({}), deleting DB and retrying...", e);
+        drop(pool);
+        let db_path = config.data_dir.join("omniroute.db");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path.display()));
+        let opts2 = SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(true)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .foreign_keys(true)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool2 = SqlitePoolOptions::new()
+            .max_connections(5)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .connect_with(opts2)
+            .await?;
+        sqlx::migrate!("./migrations").run(&pool2).await.map_err(|e| {
+            crate::error::AppError::Internal(format!("migration failed after DB reset: {}", e))
+        })?;
+        tracing::info!("[db] recovered after DB reset");
+        seed_defaults(&pool2, config).await?;
+        tracing::info!("[db] ready");
+        return Ok(pool2);
+    }
 
     // Seed the admin user + default providers on first run
     seed_defaults(&pool, config).await?;

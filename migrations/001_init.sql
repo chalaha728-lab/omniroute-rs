@@ -2,9 +2,10 @@
 -- Mirrors the storage contract of the Node.js OmniRoute: API keys, usage logs,
 -- provider connections, dashboard sessions.
 
-PRAGMA journal_mode = WAL;
+-- NOTE: PRAGMA journal_mode + synchronous are set via SqliteConnectOptions
+-- in db.rs, NOT here. SQLite doesn't allow changing safety level inside a
+-- transaction, and sqlx wraps each migration in a transaction.
 PRAGMA foreign_keys = ON;
-PRAGMA synchronous = NORMAL;
 
 -- ─── Users (dashboard login) ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
