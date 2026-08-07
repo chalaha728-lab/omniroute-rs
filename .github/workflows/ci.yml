@@ -59,6 +59,17 @@ jobs:
           JWT_SECRET: ci-build-secret-with-sufficient-length-for-validation
           API_KEY_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
+      - name: Show binary size
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ls -lh target/release/omniroute || true
+          file target/release/omniroute || true
+          echo "---"
+          echo "Stripped size:"
+          strip target/release/omniroute 2>/dev/null || cp target/release/omniroute target/release/omniroute-unstripped
+          ls -lh target/release/omniroute || true
+
       - name: Run tests
         run: cargo test --release
         continue-on-error: true  # Code is in active development
