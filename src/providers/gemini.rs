@@ -132,7 +132,7 @@ impl Gemini {
 
         ChatCompletionResponse {
             id: format!("gemini-{}", chrono::Utc::now().timestamp_millis()),
-            object: "chat.completion",
+            object: "chat.completion".into(),
             created: chrono::Utc::now().timestamp(),
             model: model.into(),
             choices: vec![crate::models::chat::Choice {

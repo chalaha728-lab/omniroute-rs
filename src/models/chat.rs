@@ -159,7 +159,7 @@ pub struct ToolCallFunction {
 pub struct ChatCompletionResponse {
     pub id: String,
     #[serde(default)]
-    pub object: &'static str,           // "chat.completion"
+    pub object: String,           // "chat.completion"
     pub created: i64,
     pub model: String,
     #[serde(default)]

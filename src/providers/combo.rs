@@ -156,7 +156,7 @@ async fn execute_parallel(
     }
     Ok(ChatCompletionResponse {
         id: format!("combo-parallel-{}", chrono::Utc::now().timestamp_millis()),
-        object: "chat.completion",
+        object: "chat.completion".into(),
         created: chrono::Utc::now().timestamp(),
         model: format!("combo:parallel:{}", providers_used.join(",")),
         choices: vec![crate::models::chat::Choice {

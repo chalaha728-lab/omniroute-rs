@@ -85,7 +85,7 @@ impl Cohere {
         });
         ChatCompletionResponse {
             id,
-            object: "chat.completion",
+            object: "chat.completion".into(),
             created: chrono::Utc::now().timestamp(),
             model: model.into(),
             choices: vec![crate::models::chat::Choice {
