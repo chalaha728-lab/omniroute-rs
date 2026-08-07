@@ -110,7 +110,26 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
+    // Wrap the actual logic in a function that returns Result, then handle
+    // errors by printing them and waiting for a keypress before exiting.
+    // This prevents the Windows console window from closing instantly on crash.
+    if let Err(e) = run().await {
+        eprintln!();
+        eprintln!("═══════════════════════════════════════════════════════════════");
+        eprintln!("  OmniRoute-Rust failed to start:");
+        eprintln!("  {}", e);
+        eprintln!("═══════════════════════════════════════════════════════════════");
+        eprintln!();
+
+        // On Windows, if running in a console that was opened by double-clicking,
+        // wait for a keypress so the user can read the error.
+        wait_for_keypress_on_windows();
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = Config::from_env()?;
 
@@ -491,4 +510,24 @@ async fn dashboard_demo_html() -> impl axum::response::IntoResponse {
     use axum::http::header::CONTENT_TYPE;
     let html = include_str!("../static/dashboard-demo.html");
     ([(CONTENT_TYPE, "text/html; charset=utf-8")], html)
+}
+
+/// On Windows, if the program was launched by double-clicking (not from an
+/// existing terminal), the console window closes instantly when the program
+/// exits. This function detects that situation and waits for a keypress.
+fn wait_for_keypress_on_windows() {
+    #[cfg(target_os = "windows")]
+    {
+        // Check if we're running in a console that was created for us (vs an
+        // existing terminal). If stdin is a character device (console), we
+        // were likely double-clicked.
+        use std::io::{self, Read};
+        eprintln!("Press Enter to close this window...");
+        let mut buf = [0u8; 1];
+        let _ = io::stdin().read(&mut buf);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On macOS/Linux, the terminal doesn't auto-close, so do nothing.
+    }
 }
