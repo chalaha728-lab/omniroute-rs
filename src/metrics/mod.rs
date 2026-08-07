@@ -129,19 +129,17 @@ pub fn render() -> String {
     out.push_str("\n# HELP omniroute_provider_health Provider health (1=healthy, 0=down)\n");
     out.push_str("# TYPE omniroute_provider_health gauge\n");
     if let Ok(health_map) = crate::health::HEALTH.try_read() {
-        if let Some(health_map) = health_map {
-            for (pid, h) in health_map.iter() {
-                let value = match h.status {
-                    crate::health::HealthStatus::Healthy => 1,
-                    crate::health::HealthStatus::Degraded => 0,
-                    crate::health::HealthStatus::Down => 0,
-                    crate::health::HealthStatus::Unknown => 1,
-                };
-                out.push_str(&format!(
-                    "omniroute_provider_health{{provider=\"{}\"}} {}\n",
-                    pid.as_str(), value
-                ));
-            }
+        for (pid, h) in health_map.iter() {
+            let value = match h.status {
+                crate::health::HealthStatus::Healthy => 1,
+                crate::health::HealthStatus::Degraded => 0,
+                crate::health::HealthStatus::Down => 0,
+                crate::health::HealthStatus::Unknown => 1,
+            };
+            out.push_str(&format!(
+                "omniroute_provider_health{{provider=\"{}\"}} {}\n",
+                pid.as_str(), value
+            ));
         }
     }
 
