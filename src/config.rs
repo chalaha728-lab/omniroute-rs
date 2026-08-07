@@ -69,31 +69,62 @@ pub struct ProviderKeys {
 
 impl Config {
     /// Load config from env vars (with .env file loaded first via dotenvy).
+    ///
+    /// NEW: If JWT_SECRET / API_KEY_SECRET are missing, they are auto-generated
+    /// and persisted to <data_dir>/secrets.env so the user doesn't have to
+    /// create a .env file. This makes the binary "just work" on first run.
     pub fn from_env() -> anyhow::Result<Self> {
         // Load .env if present (no error if missing)
         let _ = dotenvy::dotenv();
 
-        let jwt_secret = env::var("JWT_SECRET")
-            .map_err(|_| anyhow::anyhow!("JWT_SECRET must be set (see .env.example)"))?;
-        let api_key_secret = env::var("API_KEY_SECRET")
-            .map_err(|_| anyhow::anyhow!("API_KEY_SECRET must be set (see .env.example)"))?;
-
-        if jwt_secret.len() < 16 {
-            anyhow::bail!("JWT_SECRET is too short (minimum 16 chars)");
-        }
-        if api_key_secret.len() < 32 {
-            anyhow::bail!("API_KEY_SECRET must be at least 32 hex chars (use `openssl rand -hex 32`)");
-        }
-
-        let port = env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(20128);
-        let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
-        let log_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".into());
-        let initial_password = env::var("INITIAL_PASSWORD").unwrap_or_else(|_| "CHANGEME".into());
-
+        // Resolve data_dir EARLY so we can persist auto-generated secrets there
         let data_dir = resolve_data_dir();
         std::fs::create_dir_all(&data_dir).map_err(|e| {
             anyhow::anyhow!("failed to create data dir {}: {}", data_dir.display(), e)
         })?;
+
+        // Try loading persisted secrets from <data_dir>/secrets.env
+        let secrets_env_path = data_dir.join("secrets.env");
+        if secrets_env_path.exists() {
+            // Load these as env vars (only if not already set in the actual env)
+            if let Ok(contents) = std::fs::read_to_string(&secrets_env_path) {
+                for line in contents.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') { continue; }
+                    if let Some(eq) = line.find('=') {
+                        let key = line[..eq].trim();
+                        let val = line[eq+1..].trim();
+                        // Only set if not already in env (env vars take precedence)
+                        if std::env::var(key).is_err() {
+                            std::env::set_var(key, val);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now resolve secrets — auto-generate if missing
+        let jwt_secret = match env::var("JWT_SECRET") {
+            Ok(s) if s.len() >= 16 => s,
+            _ => {
+                let generated = generate_random_string(48);
+                persist_secret(&secrets_env_path, "JWT_SECRET", &generated);
+                generated
+            }
+        };
+        let api_key_secret = match env::var("API_KEY_SECRET") {
+            Ok(s) if s.len() >= 32 => s,
+            _ => {
+                let generated = generate_random_hex(32);
+                persist_secret(&secrets_env_path, "API_KEY_SECRET", &generated);
+                generated
+            }
+        };
+
+        let port = env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(20128);
+        let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
+        let log_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".into());
+        let initial_password = env::var("INITIAL_PASSWORD").unwrap_or_else(|| "CHANGEME".into());
 
         let db_path = data_dir.join("omniroute.db");
         let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
@@ -261,4 +292,40 @@ fn resolve_data_dir() -> PathBuf {
 #[allow(dead_code)]
 fn dirs_home() -> Option<PathBuf> {
     env::var("HOME").ok().map(PathBuf::from)
+}
+
+// ─── Auto-secret-generation helpers ─────────────────────────────────────────
+
+/// Generate a random alphanumeric string of the given length.
+fn generate_random_string(len: usize) -> String {
+    use rand::Rng;
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = rand::thread_rng();
+    (0..len)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}
+
+/// Generate a random hex string of the given byte length (output is 2x bytes).
+fn generate_random_hex(bytes: usize) -> String {
+    use rand::RngCore;
+    let mut buf = vec![0u8; bytes];
+    rand::thread_rng().fill_bytes(&mut buf);
+    hex::encode(buf)
+}
+
+/// Persist a key=value line to the secrets file (append if exists, create if not).
+fn persist_secret(path: &Path, key: &str, value: &str) {
+    let line = format!("{}={}\n", key, value);
+    // Append (create if missing)
+    use std::io::Write;
+    use std::OpenOptions;
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = f.write_all(b"# Auto-generated by omniroute on first run\n");
+        let _ = f.write_all(line.as_bytes());
+    }
+    eprintln!("✨ Auto-generated {} (saved to {})", key, path.display());
 }

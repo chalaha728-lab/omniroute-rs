@@ -176,19 +176,81 @@ async fn main() -> anyhow::Result<()> {
             cli::gen_secret(bytes);
         }
         None => {
-            tracing::info!("OmniRoute-Rust v{} starting", env!("CARGO_PKG_VERSION"));
-            tracing::info!("data_dir: {}", config.data_dir.display());
-            tracing::info!("listen: {}:{}", config.host, config.port);
+            // ─── Print a clear startup banner ────────────────────────────────
+            print_startup_banner(&config);
 
             let app = build_router(config.clone(), pool.clone(), registry.clone());
             let addr: SocketAddr = config.listen_addr().parse()?;
-            tracing::info!("✓ ready — http://{}", addr);
             let listener = tokio::net::TcpListener::bind(addr).await?;
+
+            // Spawn a background task to auto-open the browser after 1.5s
+            // (gives the server time to start accepting connections)
+            let port = config.port;
+            let no_browser = std::env::var("OMNIROUTE_NO_BROWSER").is_ok();
+            if !no_browser {
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    open_browser(&format!("http://localhost:{}/dashboard-demo.html", port));
+                });
+            }
+
             axum::serve(listener, app).await?;
         }
     }
 
     Ok(())
+}
+
+/// Print a clear, user-friendly startup banner with the endpoint + dashboard link.
+fn print_startup_banner(config: &Config) {
+    let port = config.port;
+    let dashboard_url = format!("http://localhost:{}/dashboard-demo.html", port);
+    let api_url = format!("http://localhost:{}/v1", port);
+    let health_url = format!("http://localhost:{}/api/monitoring/health", port);
+
+    eprintln!();
+    eprintln!("  ┌─────────────────────────────────────────────────────────────┐");
+    eprintln!("  │                                                             │");
+    eprintln!("  │   OmniRoute-Rust v{}                                    │", env!("CARGO_PKG_VERSION"));
+    eprintln!("  │   OpenAI-compatible AI gateway — pure Rust                 │", );
+    eprintln!("  │                                                             │");
+    eprintln!("  ├─────────────────────────────────────────────────────────────┤");
+    eprintln!("  │                                                             │");
+    eprintln!("  │   📊 Dashboard:  {}", dashboard_url);
+    eprintln!("  │   🔌 API base:   {}", api_url);
+    eprintln!("  │   ❤️  Health:     {}", health_url);
+    eprintln!("  │                                                             │");
+    eprintln!("  ├─────────────────────────────────────────────────────────────┤");
+    eprintln!("  │                                                             │");
+    eprintln!("  │   Login:  POST {}/api/auth/login", format!("http://localhost:{}", port));
+    eprintln!("  │           with body: {{\"username\":\"admin\",\"password\":\"{}\"}}", config.initial_password);
+    eprintln!("  │                                                             │");
+    eprintln!("  │   Data dir:  {}", config.data_dir.display());
+    eprintln!("  │   Logs:      {} (set LOG_LEVEL=debug for more)", config.log_level);
+    eprintln!("  │                                                             │");
+    eprintln!("  │   Press Ctrl+C to stop                                      │");
+    eprintln!("  │                                                             │");
+    eprintln!("  └─────────────────────────────────────────────────────────────┘");
+    eprintln!();
+}
+
+/// Open a URL in the default browser. Cross-platform.
+fn open_browser(url: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", url])
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Try xdg-open, then sensible-browser, then just give up silently
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
 }
 
 fn build_router(config: Config, pool: SqlitePool, registry: SharedRegistry) -> Router {
