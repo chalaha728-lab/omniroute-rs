@@ -2,11 +2,62 @@
 
 **Fast, light, OpenAI-compatible AI gateway — pure Rust rewrite.**
 
-Single static binary, no Node.js, no runtime deps. ~15–20 MB stripped. OpenAI-compatible API that any client (Cursor, Cline, Codex, Continue, OpenCode, Claude Desktop) can drop into.
+Single static binary, no Node.js, no runtime deps. ~8.4 MB stripped. OpenAI-compatible API that any client (Cursor, Cline, Codex, Continue, OpenCode, Claude Desktop) can drop into.
 
-A fresh Rust rewrite of [OmniRoute](https://github.com/diegosouzapw/OmniRoute). Implements the **core gateway + OmniRoute's signature features**: 20 providers, multi-provider combos, MCP server, RTK compression, guardrails, webhooks, embeddings, TTS, image gen.
+A fresh Rust rewrite of [OmniRoute](https://github.com/diegosouzapw/OmniRoute). Implements the **core gateway + OmniRoute's signature features**: 40 providers, multi-provider combos, MCP server, RTK compression, guardrails, webhooks, embeddings, TTS, image gen.
 
-## Quick start
+> ⚠️ **This is a command-line server, not a GUI app.** Double-clicking the exe won't show a window — you need to run it from a terminal. See [Quick start (Windows)](#quick-start-windows) below.
+
+## Quick start (Windows — pre-built binary)
+
+1. **Download** the latest `omniroute-windows-latest.zip` from [the Actions tab](https://github.com/chalaha728-lab/omniroute-rs/actions) — pick the most recent successful run, scroll to "Artifacts" at the bottom.
+
+2. **Unzip** it to a folder, e.g. `C:\omniroute\` — you should see `omniroute.exe` inside.
+
+3. **In that same folder**, create a file named `.env` with these contents (use a text editor like Notepad):
+   ```
+   JWT_SECRET=any-random-string-at-least-16-chars-long
+   API_KEY_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+   INITIAL_PASSWORD=ChangeMe123!
+   PORT=20128
+   LOG_LEVEL=info
+   OPENAI_API_KEY=sk-your-real-openai-key-here
+   ```
+   (Replace `OPENAI_API_KEY` with your actual OpenAI key. The other secrets can be any random string.)
+
+4. **Open PowerShell or Command Prompt** in that folder (Shift+Right-Click in File Explorer → "Open PowerShell window here").
+
+5. **Run:**
+   ```
+   .\omniroute.exe
+   ```
+
+6. **Open** http://localhost:20128/api/monitoring/health in your browser — you should see:
+   ```json
+   {"status":"ok","db":true,"timestamp":"..."}
+   ```
+
+That's it. The server is running. To stop it, press `Ctrl+C` in the terminal.
+
+**OR — easier:** download [`start-omniroute.bat`](./start-omniroute.bat) from this repo, put it in the same folder as `omniroute.exe`, and double-click it. It will generate the `.env` file for you on first run.
+
+## Quick start (Linux / macOS — pre-built binary)
+
+```bash
+# Download from https://github.com/chalaha728-lab/omniroute-rs/actions
+# (pick the latest successful run, download omniroute-ubuntu-latest or omniroute-macos-latest)
+unzip omniroute-ubuntu-latest.zip
+chmod +x omniroute
+
+# Create .env (see Windows section above for contents)
+nano .env
+
+# Run
+./omniroute
+# → http://localhost:20128
+```
+
+## Quick start (build from source)
 
 ```bash
 # 1. Clone + install Rust (stable, ≥ 1.77)
