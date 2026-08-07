@@ -156,8 +156,16 @@ fn caveman_compress_message(msg: &mut Message) {
 }
 
 fn case_insensitive_replace(haystack: &str, needle: &str, replacement: &str) -> String {
-    if haystack.to_lowercase().contains(&needle.to_lowercase()) {
-        haystack.to_lowercase().replace(&needle.to_lowercase(), replacement)
+    // Find the needle case-insensitively, replace just that portion,
+    // and preserve the original casing of the rest of the text.
+    let haystack_lower = haystack.to_lowercase();
+    let needle_lower = needle.to_lowercase();
+    if let Some(pos) = haystack_lower.find(&needle_lower) {
+        let mut result = String::with_capacity(haystack.len());
+        result.push_str(&haystack[..pos]);
+        result.push_str(replacement);
+        result.push_str(&haystack[pos + needle.len()..]);
+        result
     } else {
         haystack.to_string()
     }
